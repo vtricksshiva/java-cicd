@@ -1,17 +1,24 @@
 pipeline {
     agent any
+
+    environment {
+        AWS_REGION = 'us-east-1'
+        ECR_REPO   = '218137097139.dkr.ecr.us-east-1.amazonaws.com/java-app'
+    }
+
     tools {
         maven 'maven'
-        ansible 'ansible'
     }
+
     stages {
-        stage('Hello') {
+
+        stage('Clone Repo') {
             steps {
                 git branch: 'main', url: 'https://github.com/vtricksshiva/java-cicd.git'
             }
         }
 
-        stage('sonar_scan') {
+        stage('Sonar Scan') {
             steps {
                 script {
                     withSonarQubeEnv('Sonarqube') {
@@ -21,35 +28,60 @@ pipeline {
             }
         }
 
-        stage('build binaries') {
+        stage('Build Binaries') {
             steps {
                 sh 'mvn clean install'
                 sh 'cp target/java-frontend-app.war .'
-                sh 'mv java-frontend-app.war java-frontend-app-${BUILD_NUMBER}.war'
             }
         }
 
-        stage('push binaries to nexus') {
+        stage('Push Binaries to Nexus') {
             steps {
                 script {
                     withCredentials([usernamePassword(credentialsId: 'nexus-cred', passwordVariable: 'pass', usernameVariable: 'user')]) {
                         sh """
-                        curl -u ${user}:${pass} -T java-frontend-app-${BUILD_NUMBER}.war \
-                        "http://54.91.74.205:8081/repository/java-app//java-frontend-app-${BUILD_NUMBER}.war"
+                        curl -u ${user}:${pass} -T java-frontend-app.war \
+                        "http://13.232.30.13:8081/repository/java-artifacts/java-frontend-app-${BUILD_NUMBER}.war"
                         """
                     }
                 }
             }
         }
 
-        stage('deploy to tomcat') {
+        stage('Build Docker Image') {
             steps {
-                script {
-                    sh """
-                    ansible-playbook deploy_tomcat.yml -i hosts.ini --private-key /var/lib/jenkins/nv_shiv.pem -u ubuntu -e 'BUILD_NUMBER=${BUILD_NUMBER}'
-                    """
-                }
+                sh """
+                docker build -t java-frontend-app:${BUILD_NUMBER} .
+                docker tag java-frontend-app:${BUILD_NUMBER} ${ECR_REPO}:${BUILD_NUMBER}
+                docker tag java-frontend-app:${BUILD_NUMBER} ${ECR_REPO}:latest
+                """
             }
+        }
+
+        stage('Push to ECR') {
+            steps {
+                sh """
+                aws ecr get-login-password --region ${AWS_REGION} | \
+                docker login --username AWS --password-stdin ${ECR_REPO}
+                
+                docker push ${ECR_REPO}:${BUILD_NUMBER}
+                docker push ${ECR_REPO}:latest
+                """
+            }
+        }
+
+    }
+
+    post {
+        success {
+            echo "Pipeline completed — Docker image pushed to ECR: ${ECR_REPO}:${BUILD_NUMBER}"
+        }
+        failure {
+            echo "Pipeline failed — check the logs above"
+        }
+        always {
+            sh "docker rmi java-frontend-app:${BUILD_NUMBER} || true"
+            sh "docker rmi ${ECR_REPO}:${BUILD_NUMBER} || true"
         }
     }
 }
