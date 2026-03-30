@@ -1,4 +1,3 @@
-Dockerfile
 FROM tomcat:10.1-jdk17
 
 # Remove default Tomcat apps
