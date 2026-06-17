@@ -2,8 +2,8 @@ pipeline {
     agent any
 
     environment {
-        AWS_REGION = 'us-east-1'
-        ECR_REPO   = '218137097139.dkr.ecr.us-east-1.amazonaws.com/java-app'
+        AWS_REGION = 'ap-south-1'
+        ECR_REPO   = '841229410409.dkr.ecr.ap-south-1.amazonaws.com/demo'
     }
 
     tools {
@@ -11,7 +11,6 @@ pipeline {
     }
 
     stages {
-
         stage('Clone Repo') {
             steps {
                 git branch: 'main', url: 'https://github.com/vtricksshiva/java-cicd.git'
@@ -21,7 +20,7 @@ pipeline {
         stage('Sonar Scan') {
             steps {
                 script {
-                    withSonarQubeEnv('Sonarqube') {
+                    withSonarQubeEnv('sonar-server') {
                         sh "mvn clean verify sonar:sonar -Dsonar.projectKey=sonar-scan-with-jenkins -Dsonar.projectName='sonar-scan-with-jenkins'"
                     }
                 }
@@ -41,7 +40,7 @@ pipeline {
                     withCredentials([usernamePassword(credentialsId: 'nexus-cred', passwordVariable: 'pass', usernameVariable: 'user')]) {
                         sh """
                         curl -u ${user}:${pass} -T java-frontend-app.war \
-                        "http://13.232.30.13:8081/repository/java-artifacts/java-frontend-app-${BUILD_NUMBER}.war"
+                        "http://15.207.248.132:8081/repository/demo-project/-${BUILD_NUMBER}.war"
                         """
                     }
                 }
@@ -59,16 +58,25 @@ pipeline {
         }
 
         stage('Push to ECR') {
-            steps {
-                sh """
-                aws ecr get-login-password --region ${AWS_REGION} | \
-                docker login --username AWS --password-stdin ${ECR_REPO}
-                
-                docker push ${ECR_REPO}:${BUILD_NUMBER}
-                docker push ${ECR_REPO}:latest
-                """
-            }
+    steps {
+        withCredentials([
+            [$class: 'AmazonWebServicesCredentialsBinding',
+             credentialsId: 'aws-creds']
+        ]) {
+
+            sh """
+            aws sts get-caller-identity
+
+            aws ecr get-login-password --region ${AWS_REGION} | \
+            docker login --username AWS --password-stdin \
+            841229410409.dkr.ecr.ap-south-1.amazonaws.com
+
+            docker push ${ECR_REPO}:${BUILD_NUMBER}
+            docker push ${ECR_REPO}:latest
+            """
         }
+    }
+}
 
     }
 
